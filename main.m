@@ -6,12 +6,13 @@
 % Add folder for 3-D visualization files
 addpath(genpath('flypath3d_v3'))
 addpath(genpath('pathplotter and waypoints'))
+clear WP_selector      % reset persistent segment index
 
 %% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % USER INPUTS
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 clc; clear; close all;
-T_final = 1000;	        % Final simulation time (s)
+T_final = 6000;	        % Final simulation time (s)
 h = 0.1;                % Sampling time (s)
 
 psi_ref = 10 * pi/180;  % desired yaw angle (rad)
