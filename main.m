@@ -5,6 +5,7 @@
 
 % Add folder for 3-D visualization files
 addpath(genpath('flypath3d_v3'))
+addpath(genpath('pathplotter and waypoints'))
 
 %% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % USER INPUTS
@@ -62,6 +63,13 @@ nTimeSteps = length(t);         % Number of time steps
 simdata = zeros(nTimeSteps, 15); % Pre-allocate matrix for efficiency
 
 for i = 1:nTimeSteps
+        
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    % Part 3, 1a) Guidance Law
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    [chi_d, last] = guidance(x(4), x(5));
+    psi_ref = chi_d;
+    
     
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     % Part 2, 1a) Add current here 
@@ -100,7 +108,7 @@ for i = 1:nTimeSteps
     % psi_d = xd(1);
     % r_d = xd(2);
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    % if t(i) > 400
+    % if t(i) > 400 %comment to compute point 3e (constant heading) 
     %     psi_ref = -20* pi/180;
     % end
     xd_dot = ref_model(xd,psi_ref );
@@ -124,6 +132,7 @@ for i = 1:nTimeSteps
     if ~saturation
      e_int = e_int + h*e_psi;                            %update integral term
     end 
+    
 
  
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -203,6 +212,7 @@ v_r = v - vc_log;
 beta_crab  = atan2(v,   u);      % crab angle (over ground)
 beta_slip  = atan2(v_r, u_r);    % sideslip angle (through water)
 
+
 figure(4)
 plot(t, rad2deg(beta_slip), t, rad2deg(beta_crab), 'linewidth', 2);
 title('Sideslip and crab angle'); xlabel('Time (s)'); ylabel('Angle (deg)');
@@ -259,3 +269,7 @@ flypath('flypath3d_v3/ship1.mat',...
 'xlim', [min(y)-0.1*max(abs(y)),max(y)+0.1*max(abs(y))],... 
 'ylim', [min(x)-0.1*max(abs(x)),max(x)+0.1*max(abs(x))], ...
 'zlim', [-max(max(abs(x)),max(abs(y)))/100,max(max(abs(x)),max(abs(y)))/20]); 
+
+
+%Plotter
+pathplotter(x,y);
