@@ -5,7 +5,7 @@ u_d = 7;
 [T,K] = nomoto_first_order(u_d);
 A = [   
     0 1 0;
-    K/T 0 -K/T;
+    -K/T 0 -K/T;
     0 0 0;
     ];
 B = [0 K/T 0 ]';

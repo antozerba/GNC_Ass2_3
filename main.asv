@@ -7,6 +7,7 @@
 addpath(genpath('flypath3d_v3'))
 addpath(genpath('pathplotter and waypoints'))
 clear WP_selector      % reset persistent segment index
+clear ILOS_guidance    % reset persistent segment index
 
 %% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % USER INPUTS
@@ -30,7 +31,8 @@ A_Lw    = 10 * L_oa;
 t_wind  = 200;          % wind starts after 200 s
 delta_max  = 40 * pi/180;        % max rudder angle      (rad)
 current_on  = true;
-crab_compensation = true;
+crab_compensation = false;
+feedback = 'kf';
 
 
 
@@ -43,7 +45,7 @@ Qm_0    = 0;
 x = [nu_0' eta_0' delta_0 n_0 Qm_0]'; % The state vector can be extended with addional states here
 
 %% Nomoto Model
-u_design = 7;     % speed used to linearize the model for the heading autopilot
+u_design = 9;     % speed used to linearize the model for the heading autopilot
 [T,K] = nomoto_first_order(u_design);
 
 %% gain for PID
@@ -53,6 +55,20 @@ zeta = 1;       %damping ratio
 xd = [eta_0(3); 0; 0];          % reference model states: start at initial heading, at rest
 e_int = 0;                       % PID integral state
 
+
+%% State space system
+[Ad, Bd, Cd, Ed] = discrete_system(K,T, h);
+fprintf('rank(obsv) = %d\n', rank(obsv(Ad,Cd))); 
+
+% Sensor noise (Problem 4a)
+sigma_psi = deg2rad(0.5);                 % yaw angle std [rad]
+sigma_r   = deg2rad(0.1);                 % yaw rate std  [rad/s]
+
+% Covariances (tune these, see section 4)
+Rd    = sigma_psi^2;                      % measurement noise (yaw only)
+Qd    = diag([1e-6, 1e-8]);               % process noise [w_r, w_b]
+P_prd = diag([pi^2, deg2rad(1)^2, deg2rad(5)^2]);   % initial covariance P(0)
+x_prd = [0; 0; 0];                        % initial estimate [psi; r; b]
 
 
 
@@ -81,14 +97,21 @@ for i = 1:nTimeSteps
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     % Part 3, 1a) Guidance Law
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-    [chi_d, last, e_y] = guidance(x(4), x(5));
+    [chi_d, last, e_y] = guidance(x(4), x(5), h);
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    % Part 3, 2c) Crab compensation
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     if crab_compensation
-        u_r = x(1) - uc;
-        v_r = x(2) - vc;
-        crab_angle = atan(v_r/v_r);
-        psi_ref = chi_d - crab_angle
-    psi_ref = chi_d;
+        U = sqrt(x(1)^2 + x(2)^2);              % speed over ground
+        if U > 1                                % prevents the intial spike
+            beta_c = atan2(x(2), x(1));         % crab angle (velocity over ground)
+        else
+            beta_c = 0;
+        end
+        psi_ref = ssa(chi_d - beta_c);
+    else
+        psi_ref = chi_d;
+    end
     
     
 

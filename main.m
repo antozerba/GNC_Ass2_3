@@ -32,6 +32,7 @@ t_wind  = 200;          % wind starts after 200 s
 delta_max  = 40 * pi/180;        % max rudder angle      (rad)
 current_on  = true;
 crab_compensation = false;
+feedback = 'kf';
 
 
 
@@ -44,7 +45,7 @@ Qm_0    = 0;
 x = [nu_0' eta_0' delta_0 n_0 Qm_0]'; % The state vector can be extended with addional states here
 
 %% Nomoto Model
-u_design = 7;     % speed used to linearize the model for the heading autopilot
+u_design = 9;     % speed used to linearize the model for the heading autopilot
 [T,K] = nomoto_first_order(u_design);
 
 %% gain for PID
@@ -55,6 +56,20 @@ xd = [eta_0(3); 0; 0];          % reference model states: start at initial headi
 e_int = 0;                       % PID integral state
 
 
+%% State space system
+[Ad, Bd, Cd, Ed] = discrete_system(K,T, h);
+fprintf('rank(obsv) = %d\n', rank(obsv(Ad,Cd))); 
+
+% Sensor noise (Problem 4a)
+sigma_psi = deg2rad(0.5);                 % yaw angle std [rad]
+sigma_r   = deg2rad(0.1);                 % yaw rate std  [rad/s]
+
+% Covariances (tune these, see section 4)
+Rd    = sigma_psi^2;                      % measurement noise (yaw only)
+Qd    = diag([1e-6, 1e-8]);               % process noise [w_r, w_b]
+P_prd = diag([pi^2, deg2rad(1)^2, deg2rad(5)^2]);   % initial covariance P(0)
+x_prd = [0; 0; 0];                        % initial estimate [psi; r; b]
+
 
 
 
@@ -64,9 +79,31 @@ e_int = 0;                       % PID integral state
 t = 0:h:T_final;                % Time vector
 nTimeSteps = length(t);         % Number of time steps
 
-simdata = zeros(nTimeSteps, 17); % Pre-allocate matrix for efficiency
+simdata = zeros(nTimeSteps, 22); % Pre-allocate matrix for efficiency
 
 for i = 1:nTimeSteps
+
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    % Part 3, 4a) Noisy measurements
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    psi_meas = ssa(x(6) + sigma_psi*randn);   % gyrocompass
+    r_meas   = x(3) + sigma_r*randn;          % rate gyro
+
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    % Part 3, 4b) Kalman filter
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    [x_pst,P_pst,x_prd,P_prd] = KF(x_prd,P_prd,Ad,Bd,Ed,Cd,Qd,Rd,psi_meas,x(7));
+
+
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    % Part 3, 4c/4d) Feedback signals
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    switch feedback
+        case 'true',  psi_fb = x(6);      r_fb = x(3);
+        case 'noisy', psi_fb = psi_meas;  r_fb = r_meas;
+        case 'kf',    psi_fb = x_pst(1);  r_fb = x_pst(2);
+    end
+
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     % Part 2, 1a) Add current here 
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -83,6 +120,7 @@ for i = 1:nTimeSteps
     % Part 3, 1a) Guidance Law
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     [chi_d, last, e_y] = guidance(x(4), x(5), h);
+
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     % Part 3, 2c) Crab compensation
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -146,8 +184,8 @@ for i = 1:nTimeSteps
     %
     % The result should look like this:
     % delta_c =  PID_heading(e_psi,e_r,e_int);
-    e_psi = ssa(x(6) - psi_d);                              %psi error
-    e_r = x(3) - r_d;                                       %r error
+    e_psi = ssa(psi_fb - psi_d);                              %psi error
+    e_r = r_fb - r_d;                                       %r error
     delta_c = PID_heading(e_psi,e_r,e_int, Kp,Kd, Ki);      %rudder angle command
 
     saturation = abs(delta_c) > delta_max;
@@ -184,8 +222,9 @@ for i = 1:nTimeSteps
     [xdot,tau_total] = ship(x,u,nu_c,tau_wind);
     
     % store simulation data in a table (for testing)
-    simdata(i,:) = [x(1:3)' x(4:6)' x(7) x(8) u(1) u(2) u_d psi_d r_d uc vc e_y chi_d];     
- 
+    simdata(i,:) = [x(1:3)' x(4:6)' x(7) x(8) u(1) u(2) u_d psi_d r_d uc vc e_y chi_d ...
+                psi_meas r_meas x_pst'];
+   
     % Euler integration
     % x = euler2(xdot,x,h); 
     % Runge Kutta 4 integration
@@ -228,18 +267,79 @@ uc = simdata(:, 14);
 vc = simdata(:, 15);
 e_y = simdata(:, 16);
 chi_d = (180/pi)* simdata(:, 17);
-
-
+psi_meas = simdata(:,18);   r_meas = simdata(:,19);
+psi_hat  = simdata(:,20);   r_hat  = simdata(:,21);   b_hat = simdata(:,22);
+u_r = u - uc;
+v_r = v - vc;
 
 %% PLOTTING
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Part 4) State estimation plots
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+psi_true_deg = rad2deg(ssa(psi));          % wrap true yaw for comparison
+psi_meas_deg = rad2deg(psi_meas);
+psi_hat_deg  = rad2deg(psi_hat);
+r_meas_deg   = rad2deg(r_meas);
+r_hat_deg    = rad2deg(r_hat);
+
+% 4a) Noisy measurements vs true states
+figure(6); clf
+subplot(211)
+plot(t, psi_meas_deg, t, psi_true_deg, 'linewidth', 1.5); grid on
+title('Yaw angle: measurement vs true'); xlabel('Time (s)'); ylabel('Angle (deg)');
+legend('measured \psi', 'true \psi')
+subplot(212)
+plot(t, r_meas_deg, t, r_deg, 'linewidth', 1.5); grid on
+title('Yaw rate: measurement vs true'); xlabel('Time (s)'); ylabel('Rate (deg/s)');
+legend('measured r', 'true r')
+
+% 4b) Kalman filter estimates vs true states, and bias estimate
+figure(7); clf
+subplot(311)
+plot(t, psi_true_deg, t, psi_hat_deg, '--', 'linewidth', 1.5); grid on
+title('Yaw angle: estimate vs true'); xlabel('Time (s)'); ylabel('Angle (deg)');
+legend('true \psi', 'estimated \psi')
+subplot(312)
+plot(t, r_deg, t, r_hat_deg, '--', 'linewidth', 1.5); grid on
+title('Yaw rate: estimate vs true'); xlabel('Time (s)'); ylabel('Rate (deg/s)');
+legend('true r', 'estimated r')
+subplot(313)
+plot(t, rad2deg(b_hat), 'linewidth', 1.5); grid on
+title('Estimated rudder bias'); xlabel('Time (s)'); ylabel('Angle (deg)');
+legend('estimated b')
+
+% 4b) Estimation errors (zoomed, after initial convergence)
+idx = t > 50;
+figure(8); clf
+subplot(211)
+plot(t(idx), rad2deg(ssa(psi_hat(idx) - psi(idx))), 'linewidth', 1.2); grid on
+title('Yaw angle estimation error'); xlabel('Time (s)'); ylabel('\psi_{hat} - \psi (deg)');
+subplot(212)
+plot(t(idx), r_hat_deg(idx) - r_deg(idx), 'linewidth', 1.2); grid on
+title('Yaw rate estimation error'); xlabel('Time (s)'); ylabel('r_{hat} - r (deg/s)');
+
+% 4c/4d) Closed-loop performance with the selected feedback
+figure(9); clf
+sgtitle(['Feedback: ' feedback])
+subplot(221)
+plot(y, x, 'linewidth', 1.5); axis equal; grid on
+title('North-East position'); xlabel('East (m)'); ylabel('North (m)');
+subplot(222)
+plot(t, delta_c_deg, 'linewidth', 1.2); grid on
+ylim([-1.2 1.2]*rad2deg(delta_max))
+title('Desired rudder angle'); xlabel('Time (s)'); ylabel('\delta_c (deg)');
+subplot(223)
+plot(t, psi_true_deg, t, psi_d_deg, '--', 'linewidth', 1.5); grid on
+title('Yaw angle'); xlabel('Time (s)'); ylabel('Angle (deg)');
+legend('\psi', '\psi_d')
+subplot(224)
+plot(t, r_deg, t, r_d_deg, '--', 'linewidth', 1.5); grid on
+title('Yaw rate'); xlabel('Time (s)'); ylabel('Rate (deg/s)');
+legend('r', 'r_d')
 
 
 
-
-%1.a Plot of crab angle and sideslip 
-u_r = u - uc;
-v_r = v - vc;
         
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Part 3, 2a) Side Slip and Crab Angle
