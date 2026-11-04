@@ -1,0 +1,27 @@
+function chi_d = ILOS_guidance(e_y,pi_h, y_int, h)
+% ILOS_GUIDANCE  Lookahead-based Line-of-Sight guidance law for straight-line
+%               path following (Fossen 2021, Eq. 12.78).
+%   INPUTS
+%     e_y   - Cross-track error [m]: lateral distance from the craft to the
+%             active path segment, expressed in the path-fixed frame.
+%      
+%     pi_h  - Path-tangential angle [rad]: direction of the active segment
+%             from waypoint p_k to p_k+1, measured from North
+%
+%   OUTPUT
+%     chi_d - Desired COURSE angle [rad] 
+
+    k = 5;                  %desing param for integral gain
+    L = 161;                % ship length (m)
+    delta_h = 5*L;          % lookhaed distance
+    Kp = 1/delta_h;
+    Ki = k*Kp;
+    chi_d = pi_h - atan(Kp*e_y + Ki*y_int);
+
+    y_int_dot = Delta*e_y / (Delta^2 + (e_y + kappa*y_int)^2);
+    e_yint = yint + h * e_yint_dot;
+
+
+
+    
+end
