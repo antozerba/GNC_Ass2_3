@@ -3,7 +3,7 @@ function [chi_d,last,e_y] = guidance(x,y,h)
 %   y_int is a persistent integral state, reset at every waypoint switch.
 %   NB: call "clear guidance" at the start of main.m.
 
-    law = 'ilos';
+    law = 'los';
 
     persistent y_int_p pi_h_prev
     if isempty(y_int_p)

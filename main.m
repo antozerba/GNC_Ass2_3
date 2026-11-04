@@ -31,7 +31,7 @@ A_Lw    = 10 * L_oa;
 t_wind  = 200;          % wind starts after 200 s
 delta_max  = 40 * pi/180;        % max rudder angle      (rad)
 current_on  = true;
-crab_compensation = false;
+crab_compensation = true;
 feedback = 'kf';
 
 
@@ -49,9 +49,10 @@ u_design = 9;     % speed used to linearize the model for the heading autopilot
 [T,K] = nomoto_first_order(u_design);
 
 %% gain for PID
-wb = 0.06;      %control bandwidth
+wb = 0.005;      %control bandwidth (inital 0.06)
 zeta = 1;       %damping ratio
 [Kp, Kd, Ki] = pid_desing_nomoto(wb, zeta,T, K );
+Ki= 0;
 xd = [eta_0(3); 0; 0];          % reference model states: start at initial heading, at rest
 e_int = 0;                       % PID integral state
 
@@ -79,7 +80,7 @@ x_prd = [0; 0; 0];                        % initial estimate [psi; r; b]
 t = 0:h:T_final;                % Time vector
 nTimeSteps = length(t);         % Number of time steps
 
-simdata = zeros(nTimeSteps, 22); % Pre-allocate matrix for efficiency
+simdata = zeros(nTimeSteps, 24); % Pre-allocate matrix for efficiency
 
 for i = 1:nTimeSteps
 
@@ -92,7 +93,10 @@ for i = 1:nTimeSteps
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     % Part 3, 4b) Kalman filter
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    [x_pst,P_pst,x_prd,P_prd] = KF(x_prd,P_prd,Ad,Bd,Ed,Cd,Qd,Rd,psi_meas,x(7));
+    [x_pst,P_pst,x_prd,P_prd,innov,S] = KF(x_prd,P_prd,Ad,Bd,Ed,Cd,Qd,Rd,psi_meas,x(7));
+    NIS   = innov^2 / S;                              % ~ chi2 with 1 dof
+    e_est = [ssa(x_pst(1) - x(6)); x_pst(2) - x(3)];  % estimation error (psi, r)
+    NEES  = e_est' / P_pst(1:2,1:2) * e_est;          % ~ chi2 with 2 dof
 
 
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -223,7 +227,7 @@ for i = 1:nTimeSteps
     
     % store simulation data in a table (for testing)
     simdata(i,:) = [x(1:3)' x(4:6)' x(7) x(8) u(1) u(2) u_d psi_d r_d uc vc e_y chi_d ...
-                psi_meas r_meas x_pst'];
+                    psi_meas r_meas x_pst' NIS NEES];
    
     % Euler integration
     % x = euler2(xdot,x,h); 
@@ -269,10 +273,59 @@ e_y = simdata(:, 16);
 chi_d = (180/pi)* simdata(:, 17);
 psi_meas = simdata(:,18);   r_meas = simdata(:,19);
 psi_hat  = simdata(:,20);   r_hat  = simdata(:,21);   b_hat = simdata(:,22);
+NIS_log  = simdata(:,23);
+NEES_log = simdata(:,24);
 u_r = u - uc;
 v_r = v - vc;
 
 %% PLOTTING
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Filter consistency: NIS (1 dof) and NEES (2 dof)
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+idx   = t > 100;                 % skip initial convergence
+tt    = t(idx);
+nis   = NIS_log(idx);
+nees  = NEES_log(idx);
+alpha = [0.025 0.975];           % 95% two-sided interval
+
+% Per-sample 95% bounds of the chi-square distribution
+if exist('chi2inv','file')
+    B_NIS  = chi2inv(alpha, 1);
+    B_NEES = chi2inv(alpha, 2);
+else                             % no Statistics Toolbox
+    B_NIS  = [0.00098 5.024];
+    B_NEES = [0.0506  7.378];
+end
+
+ANIS    = mean(nis);
+ANEES   = mean(nees);
+in_NIS  = 100*mean(nis  >= B_NIS(1)  & nis  <= B_NIS(2));
+in_NEES = 100*mean(nees >= B_NEES(1) & nees <= B_NEES(2));
+fprintf('ANIS  = %.3f (ideal 1), %.1f%% of samples inside 95%% bounds\n', ANIS,  in_NIS);
+fprintf('ANEES = %.3f (ideal 2), %.1f%% of samples inside 95%% bounds\n', ANEES, in_NEES);
+figure(10); clf
+
+% ---- NIS ----
+subplot(211); hold on; grid on
+plot(tt, nis, '.', 'Color', [0.6 0.6 0.6], 'MarkerSize', 3);
+yline(B_NIS(2), 'r--', 'linewidth', 1.5);
+yline(B_NIS(1), 'r--', 'linewidth', 1.5);
+yline(ANIS,     'b-',  'linewidth', 2);
+set(gca, 'YScale', 'log'); ylim([1e-4 50])
+title(sprintf('NIS: average %.2f (ideal 1), %.1f%% inside 95%% bounds', ANIS, in_NIS));
+xlabel('Time (s)'); ylabel('NIS');
+legend('NIS', '97.5% bound', '2.5% bound', 'average', 'Location', 'eastoutside')
+
+% ---- NEES ----
+subplot(212); hold on; grid on
+plot(tt, nees, '.', 'Color', [0.6 0.6 0.6], 'MarkerSize', 3);
+yline(B_NEES(2), 'r--', 'linewidth', 1.5);
+yline(B_NEES(1), 'r--', 'linewidth', 1.5);
+yline(ANEES,     'b-',  'linewidth', 2);
+set(gca, 'YScale', 'log'); ylim([1e-3 100])
+title(sprintf('NEES: average %.2f (ideal 2), %.1f%% inside 95%% bounds', ANEES, in_NEES));
+xlabel('Time (s)'); ylabel('NEES');
+legend('NEES', '97.5% bound', '2.5% bound', 'average', 'Location', 'eastoutside')
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Part 4) State estimation plots
@@ -431,7 +484,3 @@ new_object('flypath3d_v3/ship1.mat',[x,y,z,phi,theta,psi],...
 %Plotter
 pathplotter(x,y);
 
-
-fprintf('max|uc| = %.3f   max|vc| = %.3f\n', max(abs(uc)), max(abs(vc)));
-fprintf('max|v|  = %.3f   max|v_r| = %.3f\n', max(abs(v)), max(abs(v_r)));
-fprintf('max|beta_c - beta| = %.3f deg\n', max(abs(rad2deg(beta_crab - beta_slip))));

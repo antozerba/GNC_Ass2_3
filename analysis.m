@@ -5,14 +5,14 @@ u_d = 7;
 [T,K] = nomoto_first_order(u_d);
 A = [   
     0 1 0;
-    -K/T 0 -K/T;
+    0 -1/T -K/T;
     0 0 0;
     ];
 B = [0 K/T 0 ]';
 E = [
-    0 0 0;
-    0 1 0;
-    0 0 1;
+     0 0;
+     1 0;
+     0 1;
     ];
 C = [1 0 0];
 K = obsv(A,C); %kalman obs matrix

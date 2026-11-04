@@ -24,7 +24,7 @@ function [Ad, Bd, Cd, Ed] = discrete_system(K,T, h)
 %     Ed - Discrete process-noise matrix (3x2).
     A = [   
         0 1 0;
-        -K/T 0 -K/T;
+        0 -1/T -K/T;
         0 0 0;
         ];
     B = [0 K/T 0 ]';
